@@ -1,4 +1,4 @@
-From fd3a53eaa98b2234dedb9c7a989f89d0fc54db7d Mon Sep 17 00:00:00 2001
+From a6e23763740f5cae66aaa9c58cc71a9dcf746fcf Mon Sep 17 00:00:00 2001
 From: Kristian Evensen <kristian.evensen@gmail.com>
 Date: Wed, 8 Sep 2021 12:58:24 +0200
 Subject: [PATCH] src: Add support for setting mark
@@ -6,12 +6,12 @@ Subject: [PATCH] src: Add support for setting mark
 ---
  include/curl/curl.h |  3 +++
  lib/connect.c       | 11 +++++++++++
- lib/setopt.c        |  9 +++++++++
+ lib/setopt.c        | 10 ++++++++++
  lib/urldata.h       |  1 +
  src/tool_cfgable.h  |  1 +
  src/tool_getparam.c | 14 ++++++++++++--
  src/tool_operate.c  |  3 +++
- 7 files changed, 40 insertions(+), 2 deletions(-)
+ 7 files changed, 41 insertions(+), 2 deletions(-)
 
 diff --git a/include/curl/curl.h b/include/curl/curl.h
 index 521c254e7..024fa5226 100644
@@ -50,13 +50,14 @@ index 11e6b888b..0be666e8b 100644
  }
  
 diff --git a/lib/setopt.c b/lib/setopt.c
-index 076fe5f59..8b4d64d6f 100644
+index 076fe5f59..bd434644b 100644
 --- a/lib/setopt.c
 +++ b/lib/setopt.c
-@@ -3008,6 +3008,15 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+@@ -3007,6 +3007,16 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+     if(result)
        return result;
      break;
- #endif
++#endif
 +#ifdef SO_MARK
 +  case CURLOPT_SOCKET_MARK:
 +    uarg = va_arg(param, unsigned long);
@@ -66,9 +67,9 @@ index 076fe5f59..8b4d64d6f 100644
 +#endif
 +    data->set.socket_mark = (unsigned int)uarg;
 +    break;
+ #endif
    default:
      /* unknown tag and its companion, just ignore: */
-     result = CURLE_UNKNOWN_OPTION;
 diff --git a/lib/urldata.h b/lib/urldata.h
 index 1d9911208..a71cefa18 100644
 --- a/lib/urldata.h

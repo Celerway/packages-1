@@ -1,0 +1,13 @@
+--- a/src/kex.c
++++ b/src/kex.c
+@@ -129,7 +129,8 @@
+                  EC_HOSTKEYS \
+                  "rsa-sha2-512," \
+                  "rsa-sha2-256," \
+-                 "ssh-rsa" \
++                 "ssh-rsa," \
++                 "ssh-rsa-cert-v01@openssh.com" \
+                  DSA_HOSTKEYS
+ #define PUBLIC_KEY_ALGORITHMS "ssh-ed25519-cert-v01@openssh.com," \
+                               EC_PUBLIC_KEY_ALGORITHMS \
+

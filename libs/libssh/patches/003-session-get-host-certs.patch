@@ -1,0 +1,114 @@
+From: Thomas Hirsch <thomas.hirsch@celerway.com>
+Date: Wed, 29 Sep 2021 10:19:53 +0200
+
+Add functions to retrieve and print server public keys and host certificates.
+
+diff --git a/include/libssh/libssh.h b/include/libssh/libssh.h
+index 2a8ea89..799c3f8 100644
+--- a/include/libssh/libssh.h
++++ b/include/libssh/libssh.h
+@@ -741,6 +741,10 @@ LIBSSH_API void ssh_set_fd_towrite(ssh_session session);
+ LIBSSH_API void ssh_silent_disconnect(ssh_session session);
+ LIBSSH_API int ssh_set_pcap_file(ssh_session session, ssh_pcap_file pcapfile);
+
++/* CERT PATCHES */
++LIBSSH_API const char* ssh_cert_to_char(const ssh_key key);
++LIBSSH_API int ssh_session_get_current_server_publickey(ssh_session session, ssh_key *current_key);
++
+ /* USERAUTH */
+ LIBSSH_API int ssh_userauth_none(ssh_session session, const char *username);
+ LIBSSH_API int ssh_userauth_list(ssh_session session, const char *username);
+diff --git a/src/ABI/libssh-4.8.1.symbols b/src/ABI/libssh-4.8.1.symbols
+index 939f376..1aa3e6f 100644
+--- a/src/ABI/libssh-4.8.1.symbols
++++ b/src/ABI/libssh-4.8.1.symbols
+@@ -249,6 +249,7 @@ ssh_key_new
+ ssh_key_type
+ ssh_key_type_from_name
+ ssh_key_type_to_char
++ssh_cert_to_char
+ ssh_known_hosts_parse_line
+ ssh_knownhosts_entry_free
+ ssh_log
+@@ -355,6 +356,7 @@ ssh_session_get_known_hosts_entry
+ ssh_session_has_known_hosts_entry
+ ssh_session_is_known_server
+ ssh_session_update_known_hosts
++ssh_session_get_current_server_publickey
+ ssh_set_agent_channel
+ ssh_set_agent_socket
+ ssh_set_auth_methods
+diff --git a/src/knownhosts.c b/src/knownhosts.c
+index f2ef088..e2c532e 100644
+--- a/src/knownhosts.c
++++ b/src/knownhosts.c
+@@ -299,6 +299,21 @@ error:
+     return SSH_ERROR;
+ }
+
++int ssh_session_get_current_server_publickey(ssh_session session,
++                                             ssh_key *current_key)
++{
++    ssh_key server_pubkey = NULL;
++
++    server_pubkey = ssh_dh_get_current_server_publickey(session);
++    if (server_pubkey == NULL) {
++        ssh_set_error(session, SSH_FATAL, "No public key present");
++        return SSH_ERROR;
++    }
++
++    *current_key = server_pubkey;
++    return SSH_OK;
++}
++
+ static char *ssh_session_get_host_port(ssh_session session)
+ {
+     char *host_port;
+diff --git a/src/libssh.map b/src/libssh.map
+index cc081b6..ff87897 100644
+--- a/src/libssh.map
++++ b/src/libssh.map
+@@ -248,6 +248,7 @@ LIBSSH_4_5_0    # Released
+         ssh_key_type;
+         ssh_key_type_from_name;
+         ssh_key_type_to_char;
++        ssh_cert_to_char;
+         ssh_known_hosts_parse_line;
+         ssh_knownhosts_entry_free;
+         ssh_log;
+@@ -350,6 +351,7 @@ LIBSSH_4_5_0    # Released
+         ssh_session_has_known_hosts_entry;
+         ssh_session_is_known_server;
+         ssh_session_update_known_hosts;
++        ssh_session_get_current_server_publickey;
+         ssh_set_agent_channel;
+         ssh_set_agent_socket;
+         ssh_set_auth_methods;
+diff --git a/src/pki.c b/src/pki.c
+index 932abf2..d4f7347 100644
+--- a/src/pki.c
++++ b/src/pki.c
+@@ -261,6 +261,23 @@ ssh_key_signature_to_char(enum ssh_keytypes_e type,
+     return NULL;
+ }
+
++/**
++ * @brief Retrieve an entire certificate as string.
++ *
++ * @param[in]  type     An ssh_key containing a valid certificate.
++ *
++ * @return              A string for the public key (certificate).
++ */
++const char* ssh_cert_to_char(const ssh_key key) {
++    ssh_string blob;
++    if (key == NULL) {
++        return NULL;
++    }
++
++    blob = pki_publickey_to_blob(key);
++    return ssh_string_data(blob);
++}
++
+ /**
+  * @brief Convert a key type to a string.
+  *

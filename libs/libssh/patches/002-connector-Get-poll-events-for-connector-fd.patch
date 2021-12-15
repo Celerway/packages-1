@@ -1,0 +1,100 @@
+From 8c9c93a9bd0712f4ac8cbe50b62097310750a655 Mon Sep 17 00:00:00 2001
+From: Kristian Evensen <kristian.evensen@gmail.com>
+Date: Wed, 22 Sep 2021 20:24:55 +0200
+Subject: [PATCH] connector: Get poll events for connector fd
+
+Add a function that returns the current poll events for the connector
+file descriptor. Required to make use of connectors with an external
+event loop, since we have to poll the local sockets separate from the
+SSH file descriptor.
+---
+ include/libssh/libssh.h      |  1 +
+ src/ABI/libssh-4.8.1.symbols |  3 ++-
+ src/connector.c              | 29 +++++++++++++++++++++++++++++
+ src/libssh.map               |  1 +
+ 4 files changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/include/libssh/libssh.h b/include/libssh/libssh.h
+index 4bfd81ef..7bb42f0e 100644
+--- a/include/libssh/libssh.h
++++ b/include/libssh/libssh.h
+@@ -502,6 +502,7 @@ LIBSSH_API int ssh_connector_set_out_channel(ssh_connector connector,
+                                              enum ssh_connector_flags_e flags);
+ LIBSSH_API void ssh_connector_set_in_fd(ssh_connector connector, socket_t fd);
+ LIBSSH_API void ssh_connector_set_out_fd(ssh_connector connector, socket_t fd);
++LIBSSH_API int ssh_connector_get_poll_flags(ssh_connector connector);
+ 
+ LIBSSH_API const char *ssh_copyright(void);
+ LIBSSH_API void ssh_disconnect(ssh_session session);
+diff --git a/src/ABI/libssh-4.8.1.symbols b/src/ABI/libssh-4.8.1.symbols
+index dce4addd..939f3767 100644
+--- a/src/ABI/libssh-4.8.1.symbols
++++ b/src/ABI/libssh-4.8.1.symbols
+@@ -186,6 +186,7 @@ ssh_connector_set_in_channel
+ ssh_connector_set_in_fd
+ ssh_connector_set_out_channel
+ ssh_connector_set_out_fd
++ssh_connector_get_poll_flags
+ ssh_copyright
+ ssh_dirname
+ ssh_disconnect
+@@ -418,4 +419,4 @@ string_free
+ string_from_char
+ string_len
+ string_new
+-string_to_char
+\ No newline at end of file
++string_to_char
+diff --git a/src/connector.c b/src/connector.c
+index 4e96b200..50fe3e2e 100644
+--- a/src/connector.c
++++ b/src/connector.c
+@@ -198,6 +198,35 @@ void ssh_connector_set_out_fd(ssh_connector connector, socket_t fd)
+     connector->out_channel = NULL;
+ }
+ 
++static int ssh_connector_get_poll_flags_handle(ssh_poll_handle p)
++{
++    short poll_events = ssh_poll_get_events(p);
++    int r = 0;
++
++    if (poll_events & POLLIN) {
++        r |= SSH_READ_PENDING;
++    }
++
++    if (poll_events & POLLOUT) {
++        r |= SSH_WRITE_PENDING;
++    }
++
++    return r;
++}
++
++int ssh_connector_get_poll_flags(ssh_connector connector)
++{
++    int r = 0;
++
++    if (connector->in_fd && connector->in_poll) {
++        r = ssh_connector_get_poll_flags_handle(connector->in_poll);
++    } else if (connector->out_fd && connector->out_poll) {
++        r = ssh_connector_get_poll_flags_handle(connector->out_poll);
++    }
++
++    return r;
++}
++
+ /* TODO */
+ static void ssh_connector_except(ssh_connector connector, socket_t fd)
+ {
+diff --git a/src/libssh.map b/src/libssh.map
+index 82cdfa21..32e72e69 100644
+--- a/src/libssh.map
++++ b/src/libssh.map
+@@ -448,4 +448,5 @@ LIBSSH_4_8_1    # Released
+     global:
+         ssh_session_get_known_hosts_entry;
+         ssh_threads_get_default;
++        ssh_connector_get_poll_flags;
+ } LIBSSH_4_8_0;
+-- 
+2.25.1
+

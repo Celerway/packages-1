@@ -1,0 +1,146 @@
+From a1c6f6c3bec301f6dae578dd78f825289e6e5adb Mon Sep 17 00:00:00 2001
+From: Kristian Evensen <kristian.evensen@gmail.com>
+Date: Mon, 26 Oct 2020 15:14:36 +0100
+Subject: [PATCH] src: Add support for setting mark
+
+---
+ include/curl/curl.h |  3 +++
+ lib/connect.c       | 11 +++++++++++
+ lib/setopt.c        | 11 +++++++++++
+ lib/urldata.h       |  1 +
+ src/tool_cfgable.h  |  1 +
+ src/tool_getparam.c | 14 ++++++++++++--
+ src/tool_operate.c  |  3 +++
+ 7 files changed, 42 insertions(+), 2 deletions(-)
+
+diff --git a/include/curl/curl.h b/include/curl/curl.h
+index ff0c77496..5f10eeecc 100644
+--- a/include/curl/curl.h
++++ b/include/curl/curl.h
+@@ -1927,6 +1927,9 @@ typedef enum {
+   /* SASL authorisation identity */
+   CINIT(SASL_AUTHZID, STRINGPOINT, 289),
+ 
++  /* Set mark on packets */
++  CINIT(SOCKET_MARK, LONG, 290),
++
+   CURLOPT_LASTENTRY /* the last unused */
+ } CURLoption;
+ 
+diff --git a/lib/connect.c b/lib/connect.c
+index 77196250d..f29210d8d 100644
+--- a/lib/connect.c
++++ b/lib/connect.c
+@@ -1515,6 +1515,17 @@ CURLcode Curl_socket(struct connectdata *conn,
+   }
+ #endif
+ 
++#ifdef SO_MARK
++  if(data->set.socket_mark) {
++    int optval = (int) data->set.socket_mark;
++    if(setsockopt(*sockfd, SOL_SOCKET, SO_MARK, (void *) &optval,
++       sizeof(optval))) {
++      close(*sockfd);
++      return CURLE_COULDNT_CONNECT;
++    }
++  }
++#endif
++
+   return CURLE_OK;
+ 
+ }
+diff --git a/lib/setopt.c b/lib/setopt.c
+index 8909035a9..240caf9d4 100644
+--- a/lib/setopt.c
++++ b/lib/setopt.c
+@@ -2739,6 +2739,17 @@ CURLcode Curl_vsetopt(struct Curl_easy *data, CURLoption option, va_list param)
+       return result;
+     break;
+ #endif
++#ifdef SO_MARK
++  case CURLOPT_SOCKET_MARK:
++    uarg = va_arg(param, unsigned long);
++#if SIZEOF_LONG > 4
++    if(uarg > UINT_MAX)
++      return CURLE_BAD_FUNCTION_ARGUMENT;
++#endif
++    data->set.socket_mark = (unsigned int)uarg;
++    break;
++#endif
++
+   default:
+     /* unknown tag and its companion, just ignore: */
+     result = CURLE_UNKNOWN_OPTION;
+diff --git a/lib/urldata.h b/lib/urldata.h
+index acc1fd1b9..c82aa7165 100644
+--- a/lib/urldata.h
++++ b/lib/urldata.h
+@@ -1683,6 +1683,7 @@ struct UserDefined {
+                                                   before resolver start */
+   void *resolver_start_client; /* pointer to pass to resolver start callback */
+   long upkeep_interval_ms;      /* Time between calls for connection upkeep. */
++  long socket_mark;		/* Mark to set on all packets. */
+   multidone_func fmultidone;
+   struct Curl_easy *dohfor; /* this is a DoH request for that transfer */
+   CURLU *uh; /* URL handle for the current parsed URL */
+diff --git a/src/tool_cfgable.h b/src/tool_cfgable.h
+index ff80f8eb8..b8c26183e 100644
+--- a/src/tool_cfgable.h
++++ b/src/tool_cfgable.h
+@@ -259,6 +259,7 @@ struct OperationConfig {
+                                      0 is valid. default: CURL_HET_DEFAULT. */
+   bool haproxy_protocol;          /* whether to send HAProxy protocol v1 */
+   bool disallow_username_in_url;  /* disallow usernames in URLs */
++  long socket_mark;               /* Assign mark to packet */
+   struct GlobalConfig *global;
+   struct OperationConfig *prev;
+   struct OperationConfig *next;   /* Always last in the struct */
+diff --git a/src/tool_getparam.c b/src/tool_getparam.c
+index 2c1868383..2de089eba 100644
+--- a/src/tool_getparam.c
++++ b/src/tool_getparam.c
+@@ -306,6 +306,7 @@ static const struct LongShort aliases[]= {
+   {"R",  "remote-time",              ARG_BOOL},
+   {"s",  "silent",                   ARG_BOOL},
+   {"S",  "show-error",               ARG_BOOL},
++  {"Sm", "socket-mark",              ARG_STRING},
+   {"t",  "telnet-option",            ARG_STRING},
+   {"T",  "upload-file",              ARG_FILENAME},
+   {"u",  "user",                     ARG_STRING},
+@@ -2005,8 +2006,17 @@ ParameterError getparameter(const char *flag, /* f or -long-flag */
+         global->showerror = (!toggle)?TRUE:FALSE; /* toggle off */
+       break;
+     case 'S':
+-      /* show errors */
+-      global->showerror = toggle?1:0; /* toggle on if used with -s */
++      switch (subletter) {
++      case '\0':
++        /* show errors */
++        global->showerror = toggle?1:0; /* toggle on if used with -s */
++        break;
++      case 'm':
++        err = str2num(&config->socket_mark, nextarg);
++        if(err)
++          return err;
++        break;
++      }
+       break;
+     case 't':
+       /* Telnet options */
+diff --git a/src/tool_operate.c b/src/tool_operate.c
+index d2ad9642d..4b9a2de5b 100644
+--- a/src/tool_operate.c
++++ b/src/tool_operate.c
+@@ -1850,6 +1850,9 @@ static CURLcode create_transfers(struct GlobalConfig *global,
+           my_setopt_str(curl, CURLOPT_ALTSVC, config->altsvc);
+ #endif
+ 
++        if(config->socket_mark)
++          my_setopt(curl, CURLOPT_SOCKET_MARK, config->socket_mark);
++
+ #ifdef USE_METALINK
+         if(!metalink && config->use_metalink) {
+           outs->metalink_parser = metalink_parser_context_new();
+-- 
+2.25.1
+

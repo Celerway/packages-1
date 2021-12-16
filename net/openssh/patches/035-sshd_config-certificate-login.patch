@@ -1,0 +1,12 @@
+diff --git a/sshd_config b/sshd_config
+index 46c5637..50a7a35 100644
+--- a/sshd_config
++++ b/sshd_config
+@@ -114,3 +114,7 @@ Subsystem	sftp	/usr/libexec/sftp-server
+ #	AllowTcpForwarding no
+ #	PermitTTY no
+ #	ForceCommand cvs server
++
++# Permit login with certificates
++TrustedUserCAKeys /tmp/ssh-certs/ca.pem
++# AuthorizedPrincipalsFile %h/.ssh/authorized_principals

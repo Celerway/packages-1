@@ -10,22 +10,22 @@ figured out how to handle keys, etc.
 For development, local SSH access is conventient. Then this patch should be
 deleted.
 ---
- sshd_config | 2 ++--
- 1 file changed, 2 insertions(+), 2 deletions(-)
+ sshd_config | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/sshd_config b/sshd_config
-index 67a756f..c362703 100644
+index 7546f02..3820577 100644
 --- a/sshd_config
 +++ b/sshd_config
-@@ -12,8 +12,8 @@
+@@ -12,7 +12,7 @@
  
  #Port 22
  #AddressFamily any
 -#ListenAddress 0.0.0.0
--#ListenAddress ::
 +ListenAddress 127.0.0.1
-+ListenAddress ::1
+ #ListenAddress ::
  
- HostKey /etc/ssh/ssh_host_rsa_key
- HostKey /etc/ssh/ssh_host_ecdsa_key
+ #HostKey /etc/ssh/ssh_host_rsa_key
+-- 
+2.9.3
 

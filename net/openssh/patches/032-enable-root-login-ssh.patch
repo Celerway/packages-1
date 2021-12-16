@@ -1,6 +1,17 @@
+From 4bcd2a599289e25d7f00cc23730a720543c2a5ff Mon Sep 17 00:00:00 2001
+From: Kristian Evensen <kristian.evensen@gmail.com>
+Date: Tue, 25 May 2021 14:47:28 +0200
+Subject: [PATCH] enable root login ssh
+
+---
+ sshd_config | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sshd_config b/sshd_config
+index 78ca9fdd..cb68608f 100644
 --- a/sshd_config
 +++ b/sshd_config
-@@ -30,8 +30,8 @@
+@@ -29,8 +29,8 @@ ListenAddress 127.0.0.1
  # Authentication:
  
  #LoginGraceTime 2m
@@ -11,3 +22,6 @@
  #MaxAuthTries 6
  #MaxSessions 10
  
+-- 
+2.25.1
+

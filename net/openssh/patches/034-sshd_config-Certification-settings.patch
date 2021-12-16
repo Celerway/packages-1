@@ -1,6 +1,6 @@
-From 5390e56118873332eca565f6c9b81be6e3236943 Mon Sep 17 00:00:00 2001
+From 4efb1f36991967f55806c7a5c49785015a4d1611 Mon Sep 17 00:00:00 2001
 From: Kristian Evensen <kristian.evensen@gmail.com>
-Date: Thu, 17 Sep 2020 10:54:15 +0200
+Date: Thu, 16 Dec 2021 12:08:40 +0000
 Subject: [PATCH] sshd_config: Certification settings
 
 Permit root login with empty password.
@@ -9,7 +9,7 @@ Permit root login with empty password.
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/sshd_config b/sshd_config
-index cb68608f..46c56373 100644
+index 1a94a1ed..84c6e395 100644
 --- a/sshd_config
 +++ b/sshd_config
 @@ -29,7 +29,7 @@ ListenAddress 127.0.0.1
@@ -31,7 +31,7 @@ index cb68608f..46c56373 100644
 +PermitEmptyPasswords yes
  
  # Change to no to disable s/key passwords
- #ChallengeResponseAuthentication yes
+ #KbdInteractiveAuthentication yes
 -- 
-2.25.1
+2.30.2
 

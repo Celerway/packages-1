@@ -1,4 +1,4 @@
-From 552e2b11904e83ee1d302933ab76d4308438b593 Mon Sep 17 00:00:00 2001
+From 7644f3f711d497e2c1b8cb659cb37d6d7d64ebd5 Mon Sep 17 00:00:00 2001
 From: Kristian Evensen <kristian.evensen@gmail.com>
 Date: Tue, 11 Jan 2022 11:38:51 +0000
 Subject: [PATCH] rawnat: Add support rawdnat/rawsnat
@@ -417,7 +417,7 @@ index 0000000..aea3e15
 +}
 diff --git a/extensions/xt_RAWNAT.c b/extensions/xt_RAWNAT.c
 new file mode 100644
-index 0000000..5faa79e
+index 0000000..ff3219b
 --- /dev/null
 +++ b/extensions/xt_RAWNAT.c
 @@ -0,0 +1,409 @@
@@ -594,7 +594,7 @@ index 0000000..5faa79e
 +
 +	iph = ip_hdr(pskb);
 +
-+	if (!skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
++	if (skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
 +		return NF_DROP;
 +
 +	iph = ip_hdr(pskb);
@@ -623,7 +623,7 @@ index 0000000..5faa79e
 +
 +	iph = ip_hdr(pskb);
 +
-+	if (!skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
++	if (skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
 +		return NF_DROP;
 +
 +	iph = ip_hdr(pskb);
@@ -666,12 +666,12 @@ index 0000000..5faa79e
 +
 +	switch (*l4proto) {
 +	case IPPROTO_TCP:
-+		if (!skb_ensure_writable(pskb, *l4offset + sizeof(struct tcphdr)))
++		if (skb_ensure_writable(pskb, *l4offset + sizeof(struct tcphdr)))
 +			return false;
 +		break;
 +	case IPPROTO_UDP:
 +	case IPPROTO_UDPLITE:
-+		if (!skb_ensure_writable(pskb, *l4offset + sizeof(struct udphdr)))
++		if (skb_ensure_writable(pskb, *l4offset + sizeof(struct udphdr)))
 +			return false;
 +		break;
 +	}

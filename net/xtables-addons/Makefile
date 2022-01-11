@@ -193,6 +193,8 @@ $(eval $(call BuildTemplate,lua,Lua PacketScript,xt_LUA,LUA/xt_LUA,+kmod-ipt-con
 $(eval $(call BuildTemplate,proto,PROTO,xt_PROTO,xt_PROTO,))
 $(eval $(call BuildTemplate,psd,psd,xt_psd,xt_psd,))
 $(eval $(call BuildTemplate,quota2,quota2,xt_quota2,xt_quota2,))
+$(eval $(call BuildTemplate,rawsnat,RAWSNAT,xt_RAWSNAT,xt_RAWNAT,))
+$(eval $(call BuildTemplate,rawdnat,RAWDNAT,xt_RAWDNAT,,))
 $(eval $(call BuildTemplate,sysrq,SYSRQ,xt_SYSRQ,xt_SYSRQ,+kmod-ipt-compat-xtables +kmod-crypto-hash))
 $(eval $(call BuildTemplate,tarpit,TARPIT,xt_TARPIT,xt_TARPIT,+kmod-ipt-compat-xtables))
 

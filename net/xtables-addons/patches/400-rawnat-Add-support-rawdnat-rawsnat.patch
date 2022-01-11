@@ -1,0 +1,863 @@
+From 552e2b11904e83ee1d302933ab76d4308438b593 Mon Sep 17 00:00:00 2001
+From: Kristian Evensen <kristian.evensen@gmail.com>
+Date: Tue, 11 Jan 2022 11:38:51 +0000
+Subject: [PATCH] rawnat: Add support rawdnat/rawsnat
+
+* Support setting destination port with rawdnat.
+
+* Support setting source port with rawsnat.
+
+* Do not update ip header checksum on port change (bad Kristian)
+
+* Allow use in rawpost.
+---
+ extensions/Kbuild          |   1 +
+ extensions/Mbuild          |   1 +
+ extensions/libxt_RAWDNAT.c |  75 +++++++
+ extensions/libxt_RAWNAT.h  | 197 ++++++++++++++++++
+ extensions/libxt_RAWSNAT.c |  75 +++++++
+ extensions/xt_RAWNAT.c     | 409 +++++++++++++++++++++++++++++++++++++
+ extensions/xt_RAWNAT.h     |  10 +
+ mconfig                    |   1 +
+ 8 files changed, 769 insertions(+)
+ create mode 100644 extensions/libxt_RAWDNAT.c
+ create mode 100644 extensions/libxt_RAWNAT.h
+ create mode 100644 extensions/libxt_RAWSNAT.c
+ create mode 100644 extensions/xt_RAWNAT.c
+ create mode 100644 extensions/xt_RAWNAT.h
+
+diff --git a/extensions/Kbuild b/extensions/Kbuild
+index 7e0e963..48b537c 100644
+--- a/extensions/Kbuild
++++ b/extensions/Kbuild
+@@ -14,6 +14,7 @@ obj-${build_ECHO}        += xt_ECHO.o
+ obj-${build_IPMARK}      += xt_IPMARK.o
+ obj-${build_LOGMARK}     += xt_LOGMARK.o
+ obj-${build_PROTO}       += xt_PROTO.o
++obj-${build_RAWNAT}      += xt_RAWNAT.o
+ obj-${build_SYSRQ}       += xt_SYSRQ.o
+ obj-${build_TARPIT}      += xt_TARPIT.o
+ obj-${build_condition}   += xt_condition.o
+diff --git a/extensions/Mbuild b/extensions/Mbuild
+index fe19224..ec7406e 100644
+--- a/extensions/Mbuild
++++ b/extensions/Mbuild
+@@ -9,6 +9,7 @@ obj-${build_ECHO}        += libxt_ECHO.so
+ obj-${build_IPMARK}      += libxt_IPMARK.so
+ obj-${build_LOGMARK}     += libxt_LOGMARK.so
+ obj-${build_PROTO}       += libxt_PROTO.so
++obj-${build_RAWNAT}	 += libxt_RAWDNAT.so libxt_RAWSNAT.so
+ obj-${build_SYSRQ}       += libxt_SYSRQ.so
+ obj-${build_TARPIT}      += libxt_TARPIT.so
+ obj-${build_condition}   += libxt_condition.so
+diff --git a/extensions/libxt_RAWDNAT.c b/extensions/libxt_RAWDNAT.c
+new file mode 100644
+index 0000000..44a2539
+--- /dev/null
++++ b/extensions/libxt_RAWDNAT.c
+@@ -0,0 +1,75 @@
++/*
++ *	"RAWNAT" target extension for iptables
++ *	Copyright © Jan Engelhardt, 2008 - 2009
++ *
++ *	This program is free software; you can redistribute it and/or
++ *	modify it under the terms of the GNU General Public License; either
++ *	version 2 of the License, or any later version, as published by the
++ *	Free Software Foundation.
++ */
++#include <netinet/in.h>
++#include <getopt.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <string.h>
++#include <xtables.h>
++#include <linux/netfilter.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv6/ip6_tables.h>
++#include "libxt_RAWNAT.h"
++#include "xt_RAWNAT.h"
++#include "compat_user.h"
++
++static void rawdnat_tg_help(void)
++{
++	printf(
++"RAWDNAT target options:\n"
++"    --to-destination addr[/mask]    Address or network to map to\n"
++"    --to-port port    Destination port to set\n"
++);
++}
++
++static void rawdnat_tg_check(unsigned int flags)
++{
++	if (!(flags & FLAGS_TO_SRC) && !(flags & FLAGS_TO_PORT))
++		xtables_error(PARAMETER_PROBLEM, "RAWDNAT: "
++			"\"--to-destination\" or "
++			"\"--to-port\" is required.");
++}
++
++static struct xtables_target rawdnat_tg_reg[] = {
++	{
++		.version       = XTABLES_VERSION,
++		.name          = "RAWDNAT",
++		.revision      = 0,
++		.family        = NFPROTO_IPV4,
++		.size          = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.userspacesize = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.help          = rawdnat_tg_help,
++		.parse         = rawnat_tg4_parse,
++		.final_check   = rawdnat_tg_check,
++		.print         = rawnat_tg4_print,
++		.save          = rawnat_tg4_save,
++		.extra_opts    = rawnat_tg_opts,
++	},
++	{
++		.version       = XTABLES_VERSION,
++		.name          = "RAWDNAT",
++		.revision      = 0,
++		.family        = NFPROTO_IPV6,
++		.size          = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.userspacesize = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.help          = rawdnat_tg_help,
++		.parse         = rawnat_tg6_parse,
++		.final_check   = rawdnat_tg_check,
++		.print         = rawnat_tg6_print,
++		.save          = rawnat_tg6_save,
++		.extra_opts    = rawnat_tg_opts,
++	},
++};
++
++static void _init(void)
++{
++	xtables_register_targets(rawdnat_tg_reg,
++		sizeof(rawdnat_tg_reg) / sizeof(*rawdnat_tg_reg));
++}
+diff --git a/extensions/libxt_RAWNAT.h b/extensions/libxt_RAWNAT.h
+new file mode 100644
+index 0000000..9c0d266
+--- /dev/null
++++ b/extensions/libxt_RAWNAT.h
+@@ -0,0 +1,197 @@
++#ifndef LIBXT_RAWNAT_H
++#define LIBXT_RAWNAT_H
++
++#include <stdio.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <getopt.h>
++#include <xtables.h>
++#include <linux/netfilter/x_tables.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv6/ip6_tables.h>
++
++#include "libxt_RAWNAT.h"
++#include "xt_RAWNAT.h"
++
++enum {
++	FLAGS_TO_SRC = 1 << 0,
++	FLAGS_TO_PORT = 1 << 1,
++};
++
++static const struct option rawnat_tg_opts[] = {
++	{.name = "to-destination", .has_arg = true, .val = 't'},
++	{.name = "to-port", .has_arg = true, .val = 'p'},
++	{},
++};
++
++static char* proto_to_name(uint8_t proto)
++{
++	switch (proto) {
++	case IPPROTO_TCP:
++		return "tcp";
++	case IPPROTO_UDP:
++		return "udp";
++	default:
++		return NULL;
++	}
++}
++
++static int
++rawnat_tg4_parse(int c, char **argv, int invert, unsigned int *flags,
++                  const void *entry, struct xt_entry_target **target)
++{
++	struct xt_rawnat_tginfo *info = (void *)(*target)->data;
++	struct in_addr *a;
++	unsigned int mask;
++	char *end;
++	uint16_t dst_port;
++	const struct ipt_entry *ipt_e;
++	const char *proto_name;
++
++	switch (c) {
++	case 't':
++		info->mask = 32;
++		end = strchr(optarg, '/');
++		if (end != NULL) {
++			*end++ = '\0';
++			if (!xtables_strtoui(end, NULL, &mask, 0, 32))
++				xtables_param_act(XTF_BAD_VALUE, "RAWDNAT",
++					"--to-destination", optarg);
++			info->mask = mask;
++		}
++		a = xtables_numeric_to_ipaddr(optarg);
++		if (a == NULL)
++			xtables_param_act(XTF_BAD_VALUE, "RAWDNAT",
++				"--to-destination", optarg);
++		memcpy(&info->addr.in, a, sizeof(*a));
++		*flags |= FLAGS_TO_SRC;
++		return true;
++	case 'p':
++		ipt_e = entry;
++		if ((proto_name = proto_to_name(ipt_e->ip.proto)) == NULL) {
++			xtables_error(PARAMETER_PROBLEM, "rawdnat: "
++				      "only works with UDP and TCP");
++		}
++		dst_port = xtables_parse_port(optarg, proto_name);
++		info->port = htons(dst_port);
++		*flags |= FLAGS_TO_PORT;
++		return true;
++	}
++
++	return false;
++}
++
++static int
++rawnat_tg6_parse(int c, char **argv, int invert, unsigned int *flags,
++                  const void *entry, struct xt_entry_target **target)
++{
++	struct xt_rawnat_tginfo *info = (void *)(*target)->data;
++	struct in6_addr *a;
++	unsigned int mask;
++	char *end;
++	uint16_t dst_port;
++	const struct ip6t_entry *ip6t_e;
++	const char *proto_name;
++
++	switch (c) {
++	case 't':
++		info->mask = 128;
++		end = strchr(optarg, '/');
++		if (end != NULL) {
++			*end++ = '\0';
++			if (!xtables_strtoui(end, NULL, &mask, 0, 128))
++				xtables_param_act(XTF_BAD_VALUE, "RAWDNAT",
++					"--to-destination", optarg);
++			info->mask = mask;
++		}
++		a = xtables_numeric_to_ip6addr(optarg);
++		if (a == NULL)
++			xtables_param_act(XTF_BAD_VALUE, "RAWDNAT",
++				"--to-destination", optarg);
++		memcpy(&info->addr.in6, a, sizeof(*a));
++		*flags |= FLAGS_TO_SRC;
++		return true;
++	case 'p':
++		ip6t_e = entry;
++		if ((proto_name = proto_to_name(ip6t_e->ipv6.proto)) == NULL) {
++			xtables_error(PARAMETER_PROBLEM, "rawdnat: "
++				      "only works with UDP and TCP");
++		}
++		dst_port = xtables_parse_port(optarg, proto_name);
++		info->port = htons(dst_port);
++		*flags |= FLAGS_TO_PORT;
++		return true;
++	}
++
++	return false;
++}
++
++static void
++rawnat_tg4_print(const void *entry, const struct xt_entry_target *target,
++                 int numeric)
++{
++	const struct xt_rawnat_tginfo *info = (const void *)target->data;
++
++	if (!numeric && info->mask == 32)
++		printf(" to-destination %s ",
++		       xtables_ipaddr_to_anyname(&info->addr.in));
++	else
++		printf(" to-destination %s/%u ",
++		       xtables_ipaddr_to_numeric(&info->addr.in),
++		       info->mask);
++
++	if (info->port)
++		printf(" to-port %u ", ntohs(info->port));
++}
++
++static void
++rawnat_tg6_print(const void *entry, const struct xt_entry_target *target,
++                 int numeric)
++{
++	const struct xt_rawnat_tginfo *info = (const void *)target->data;
++
++	if (!numeric && info->mask == 128)
++		printf(" to-destination %s ",
++		       xtables_ip6addr_to_anyname(&info->addr.in6));
++	else
++		printf(" to-destination %s/%u ",
++		       xtables_ip6addr_to_numeric(&info->addr.in6),
++		       info->mask);
++
++	if (info->port)
++		printf(" to-port %u ", ntohs(info->port));
++}
++
++static void
++rawnat_tg4_save(const void *entry, const struct xt_entry_target *target)
++{
++	const struct xt_rawnat_tginfo *info = (const void *)target->data;
++
++	if (info->port) {
++		printf(" --to-destination %s/%u --to-port %u ",
++		       xtables_ipaddr_to_numeric(&info->addr.in),
++		       info->mask, ntohs(info->port));
++	} else {
++		printf(" --to-destination %s/%u ",
++		       xtables_ipaddr_to_numeric(&info->addr.in),
++		       info->mask);
++	}
++}
++
++static void
++rawnat_tg6_save(const void *entry, const struct xt_entry_target *target)
++{
++	const struct xt_rawnat_tginfo *info = (const void *)target->data;
++
++	if (info->port) {
++		printf(" --to-destination %s/%u --to-port %u ",
++		       xtables_ip6addr_to_numeric(&info->addr.in6),
++		       info->mask, ntohs(info->port));
++	} else {
++		printf(" --to-destination %s/%u ",
++		       xtables_ipaddr_to_numeric(&info->addr.in),
++		       info->mask);
++	}
++}
++#endif
+diff --git a/extensions/libxt_RAWSNAT.c b/extensions/libxt_RAWSNAT.c
+new file mode 100644
+index 0000000..aea3e15
+--- /dev/null
++++ b/extensions/libxt_RAWSNAT.c
+@@ -0,0 +1,75 @@
++/*
++ *	"RAWNAT" target extension for iptables
++ *	Copyright © Jan Engelhardt, 2008 - 2009
++ *
++ *	This program is free software; you can redistribute it and/or
++ *	modify it under the terms of the GNU General Public License; either
++ *	version 2 of the License, or any later version, as published by the
++ *	Free Software Foundation.
++ */
++#include <netinet/in.h>
++#include <getopt.h>
++#include <stdbool.h>
++#include <stdio.h>
++#include <string.h>
++#include <xtables.h>
++#include <linux/netfilter.h>
++#include <linux/netfilter_ipv4/ip_tables.h>
++#include <linux/netfilter_ipv6/ip6_tables.h>
++#include "libxt_RAWNAT.h"
++#include "xt_RAWNAT.h"
++#include "compat_user.h"
++
++static void rawsnat_tg_help(void)
++{
++	printf(
++"RAWSNAT target options:\n"
++"    --to-destination addr[/mask]    Address or network to map to\n"
++"    --to-port port    Destination port to set\n"
++);
++}
++
++static void rawsnat_tg_check(unsigned int flags)
++{
++	if (!(flags & FLAGS_TO_SRC) && !(flags & FLAGS_TO_PORT))
++		xtables_error(PARAMETER_PROBLEM, "RAWSNAT: "
++			"\"--to-destination\" or "
++			"\"--to-port\" is required.");
++}
++
++static struct xtables_target rawsnat_tg_reg[] = {
++	{
++		.version       = XTABLES_VERSION,
++		.name          = "RAWSNAT",
++		.revision      = 0,
++		.family        = NFPROTO_IPV4,
++		.size          = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.userspacesize = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.help          = rawsnat_tg_help,
++		.parse         = rawnat_tg4_parse,
++		.final_check   = rawsnat_tg_check,
++		.print         = rawnat_tg4_print,
++		.save          = rawnat_tg4_save,
++		.extra_opts    = rawnat_tg_opts,
++	},
++	{
++		.version       = XTABLES_VERSION,
++		.name          = "RAWSNAT",
++		.revision      = 0,
++		.family        = NFPROTO_IPV6,
++		.size          = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.userspacesize = XT_ALIGN(sizeof(struct xt_rawnat_tginfo)),
++		.help          = rawsnat_tg_help,
++		.parse         = rawnat_tg6_parse,
++		.final_check   = rawsnat_tg_check,
++		.print         = rawnat_tg6_print,
++		.save          = rawnat_tg6_save,
++		.extra_opts    = rawnat_tg_opts,
++	},
++};
++
++static void _init(void)
++{
++	xtables_register_targets(rawsnat_tg_reg,
++		sizeof(rawsnat_tg_reg) / sizeof(*rawsnat_tg_reg));
++}
+diff --git a/extensions/xt_RAWNAT.c b/extensions/xt_RAWNAT.c
+new file mode 100644
+index 0000000..5faa79e
+--- /dev/null
++++ b/extensions/xt_RAWNAT.c
+@@ -0,0 +1,409 @@
++/*
++ *	"RAWNAT" target extension for Xtables - untracked NAT
++ *	Copyright © Jan Engelhardt, 2008 - 2009
++ *
++ *	This program is free software; you can redistribute it and/or
++ *	modify it under the terms of the GNU General Public License; either
++ *	version 2 of the License, or any later version, as published by the
++ *	Free Software Foundation.
++ */
++#include <linux/ip.h>
++#include <linux/ipv6.h>
++#include <linux/module.h>
++#include <linux/skbuff.h>
++#include <linux/tcp.h>
++#include <linux/udp.h>
++#include <linux/version.h>
++#include <linux/netfilter.h>
++#include <linux/netfilter/nf_conntrack_common.h>
++#include <linux/netfilter/x_tables.h>
++#include <linux/netfilter_ipv6/ip6_tables.h>
++#include <net/ip.h>
++#include <net/ipv6.h>
++#include "compat_xtables.h"
++#include "xt_RAWNAT.h"
++
++#if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
++#	define WITH_IPV6 1
++#endif
++
++static inline __be32
++remask(__be32 addr, __be32 repl, unsigned int shift)
++{
++	uint32_t mask = (shift == 32) ? 0 : (~(uint32_t)0 >> shift);
++	return htonl((ntohl(addr) & mask) | (ntohl(repl) & ~mask));
++}
++
++#ifdef WITH_IPV6
++static void
++rawnat_ipv6_mask(__be32 *addr, const __be32 *repl, unsigned int mask)
++{
++	switch (mask) {
++	case 0:
++		break;
++	case 1 ... 31:
++		addr[0] = remask(addr[0], repl[0], mask);
++		break;
++	case 32:
++		addr[0] = repl[0];
++		break;
++	case 33 ... 63:
++		addr[0] = repl[0];
++		addr[1] = remask(addr[1], repl[1], mask - 32);
++		break;
++	case 64:
++		addr[0] = repl[0];
++		addr[1] = repl[1];
++		break;
++	case 65 ... 95:
++		addr[0] = repl[0];
++		addr[1] = repl[1];
++		addr[2] = remask(addr[2], repl[2], mask - 64);
++		break;
++	case 96:
++		addr[0] = repl[0];
++		addr[1] = repl[1];
++		addr[2] = repl[2];
++		break;
++	case 97 ... 127:
++		addr[0] = repl[0];
++		addr[1] = repl[1];
++		addr[2] = repl[2];
++		addr[3] = remask(addr[3], repl[3], mask - 96);
++		break;
++	case 128:
++		addr[0] = repl[0];
++		addr[1] = repl[1];
++		addr[2] = repl[2];
++		addr[3] = repl[3];
++		break;
++	}
++}
++#endif
++
++static void rawnat4_update_l4(struct sk_buff *skb, __be32 oldip, __be32 newip)
++{
++	struct iphdr *iph = ip_hdr(skb);
++	struct tcphdr *tcph;
++	struct udphdr *udph;
++
++	switch (iph->protocol) {
++	case IPPROTO_TCP:
++		tcph = tcp_hdr(skb);
++		inet_proto_csum_replace4(&tcph->check, skb, oldip, newip, true);
++		break;
++	case IPPROTO_UDP:
++	case IPPROTO_UDPLITE:
++		udph = udp_hdr(skb);
++
++        if (udph->check || skb->ip_summed == CHECKSUM_PARTIAL) {
++            inet_proto_csum_replace4(&udph->check, skb, oldip, newip, true);
++
++            if (!udph->check)
++                udph->check = CSUM_MANGLED_0;
++        }
++		break;
++	}
++}
++
++static void rawnat4_update_l4port(struct sk_buff *skb, __be16 newport,
++				  bool is_dnat)
++{
++	struct iphdr *iph = ip_hdr(skb);
++	struct tcphdr *tcph;
++	struct udphdr *udph;
++	__be16 oldport;
++
++	switch (iph->protocol) {
++	case IPPROTO_TCP:
++		tcph = tcp_hdr(skb);
++		oldport = is_dnat ? tcph->dest : tcph->source;
++		inet_proto_csum_replace2(&tcph->check, skb, oldport, newport,
++					 false);
++
++		if (is_dnat)
++			tcph->dest = newport;
++		else
++			tcph->source = newport;
++		break;
++	case IPPROTO_UDP:
++		udph = udp_hdr(skb);
++		oldport = is_dnat ? udph->dest : udph->source;
++
++        if (udph->check || skb->ip_summed == CHECKSUM_PARTIAL) {
++            inet_proto_csum_replace2(&udph->check, skb, oldport, newport, false);
++
++            if (!udph->check)
++                udph->check = CSUM_MANGLED_0;
++        }
++
++        if (is_dnat)
++			udph->dest = newport;
++		else
++			udph->source = newport;
++		break;
++	default:
++		break;
++	}
++}
++
++static unsigned int rawnat4_writable_part(const struct iphdr *iph)
++{
++	unsigned int wlen = sizeof(*iph);
++
++	switch (iph->protocol) {
++	case IPPROTO_TCP:
++		wlen += sizeof(struct tcphdr);
++		break;
++	case IPPROTO_UDP:
++		wlen += sizeof(struct udphdr);
++		break;
++	}
++	return wlen;
++}
++
++static unsigned int
++rawsnat_tg4(struct sk_buff *pskb, const struct xt_action_param *par)
++{
++	const struct xt_rawnat_tginfo *info = par->targinfo;
++	struct iphdr *iph;
++	__be32 new_addr;
++
++	iph = ip_hdr(pskb);
++
++	if (!skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
++		return NF_DROP;
++
++	iph = ip_hdr(pskb);
++
++	if (info->addr.all[0]) {
++		new_addr = remask(iph->saddr, info->addr.ip, info->mask);
++		if (iph->saddr != new_addr) {
++			csum_replace4(&iph->check, iph->saddr, new_addr);
++			rawnat4_update_l4(pskb, iph->saddr, new_addr);
++			iph->saddr = new_addr;
++		}
++	}
++
++	if (info->port) {
++		rawnat4_update_l4port(pskb, info->port, false);
++	}
++	return XT_CONTINUE;
++}
++
++static unsigned int
++rawdnat_tg4(struct sk_buff *pskb, const struct xt_action_param *par)
++{
++	const struct xt_rawnat_tginfo *info = par->targinfo;
++	struct iphdr *iph;
++	__be32 new_addr;
++
++	iph = ip_hdr(pskb);
++
++	if (!skb_ensure_writable(pskb, rawnat4_writable_part(iph)))
++		return NF_DROP;
++
++	iph = ip_hdr(pskb);
++	if (info->addr.all[0]) {
++		new_addr = remask(iph->daddr, info->addr.ip, info->mask);
++		if (iph->daddr != new_addr) {
++			csum_replace4(&iph->check, iph->daddr, new_addr);
++			rawnat4_update_l4(pskb, iph->daddr, new_addr);
++			iph->daddr = new_addr;
++		}
++	}
++
++	if (info->port) {
++		rawnat4_update_l4port(pskb, info->port, true);
++	}
++
++	return XT_CONTINUE;
++}
++
++#ifdef WITH_IPV6
++static bool rawnat6_prepare_l4(struct sk_buff *pskb, unsigned int *l4offset,
++    unsigned int *l4proto)
++{
++	static const unsigned int types[] =
++		{IPPROTO_TCP, IPPROTO_UDP, IPPROTO_UDPLITE};
++	unsigned int i;
++	int err;
++
++	*l4proto = NEXTHDR_MAX;
++
++	for (i = 0; i < ARRAY_SIZE(types); ++i) {
++		err = ipv6_find_hdr(pskb, l4offset, types[i], NULL, NULL);
++		if (err >= 0) {
++			*l4proto = types[i];
++			break;
++		}
++		if (err != -ENOENT)
++			return false;
++	}
++
++	switch (*l4proto) {
++	case IPPROTO_TCP:
++		if (!skb_ensure_writable(pskb, *l4offset + sizeof(struct tcphdr)))
++			return false;
++		break;
++	case IPPROTO_UDP:
++	case IPPROTO_UDPLITE:
++		if (!skb_ensure_writable(pskb, *l4offset + sizeof(struct udphdr)))
++			return false;
++		break;
++	}
++
++	return true;
++}
++
++static void rawnat6_update_l4(struct sk_buff *skb, unsigned int l4proto,
++    unsigned int l4offset, const struct in6_addr *oldip,
++    const struct in6_addr *newip)
++{
++	const struct ipv6hdr *iph = ipv6_hdr(skb);
++	struct tcphdr *tcph;
++	struct udphdr *udph;
++	unsigned int i;
++	bool cond;
++
++	switch (l4proto) {
++	case IPPROTO_TCP:
++		tcph = (void *)iph + l4offset;
++		for (i = 0; i < 4; ++i)
++			inet_proto_csum_replace4(&tcph->check, skb,
++				oldip->s6_addr32[i], newip->s6_addr32[i], true);
++		break;
++	case IPPROTO_UDP:
++	case IPPROTO_UDPLITE:
++		udph = (void *)iph + l4offset;
++		cond = udph->check;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19)
++		cond |= skb->ip_summed == CHECKSUM_PARTIAL;
++#endif
++		if (cond) {
++			for (i = 0; i < 4; ++i)
++				inet_proto_csum_replace4(&udph->check, skb,
++					oldip->s6_addr32[i],
++					newip->s6_addr32[i], true);
++			if (udph->check == 0)
++				udph->check = CSUM_MANGLED_0;
++		}
++		break;
++	}
++}
++
++static unsigned int
++rawsnat_tg6(struct sk_buff *pskb, const struct xt_action_param *par)
++{
++	const struct xt_rawnat_tginfo *info = par->targinfo;
++	unsigned int l4offset, l4proto;
++	struct ipv6hdr *iph;
++	struct in6_addr new_addr;
++
++	iph = ipv6_hdr(pskb);
++	memcpy(&new_addr, &iph->saddr, sizeof(new_addr));
++	rawnat_ipv6_mask(new_addr.s6_addr32, info->addr.ip6, info->mask);
++	if (ipv6_addr_cmp(&iph->saddr, &new_addr) == 0)
++		return XT_CONTINUE;
++	if (!rawnat6_prepare_l4(pskb, &l4offset, &l4proto))
++		return NF_DROP;
++	iph = ipv6_hdr(pskb);
++	rawnat6_update_l4(pskb, l4proto, l4offset, &iph->saddr, &new_addr);
++	memcpy(&iph->saddr, &new_addr, sizeof(new_addr));
++	return XT_CONTINUE;
++}
++
++static unsigned int
++rawdnat_tg6(struct sk_buff *pskb, const struct xt_action_param *par)
++{
++	const struct xt_rawnat_tginfo *info = par->targinfo;
++	unsigned int l4offset, l4proto;
++	struct ipv6hdr *iph;
++	struct in6_addr new_addr;
++
++	iph = ipv6_hdr(pskb);
++	memcpy(&new_addr, &iph->daddr, sizeof(new_addr));
++	rawnat_ipv6_mask(new_addr.s6_addr32, info->addr.ip6, info->mask);
++	if (ipv6_addr_cmp(&iph->daddr, &new_addr) == 0)
++		return XT_CONTINUE;
++	if (!rawnat6_prepare_l4(pskb, &l4offset, &l4proto))
++		return NF_DROP;
++	iph = ipv6_hdr(pskb);
++	rawnat6_update_l4(pskb, l4proto, l4offset, &iph->daddr, &new_addr);
++	memcpy(&iph->daddr, &new_addr, sizeof(new_addr));
++	return XT_CONTINUE;
++}
++#endif
++
++static int rawnat_tg_check(const struct xt_tgchk_param *par)
++{
++	if (!strcmp(par->table, "raw") || !strcmp(par->table, "rawpost"))
++		return 0;
++
++	printk(KERN_ERR KBUILD_MODNAME " may only be used in the \"raw\" "
++	       "table.\n");
++	return -EINVAL;
++}
++
++static struct xt_target rawnat_tg_reg[] __read_mostly = {
++	{
++		.name       = "RAWSNAT",
++		.revision   = 0,
++		.family     = NFPROTO_IPV4,
++		.target     = rawsnat_tg4,
++		.targetsize = sizeof(struct xt_rawnat_tginfo),
++		.checkentry = rawnat_tg_check,
++		.me         = THIS_MODULE,
++	},
++#ifdef WITH_IPV6
++	{
++		.name       = "RAWSNAT",
++		.revision   = 0,
++		.family     = NFPROTO_IPV6,
++		.target     = rawsnat_tg6,
++		.targetsize = sizeof(struct xt_rawnat_tginfo),
++		.checkentry = rawnat_tg_check,
++		.me         = THIS_MODULE,
++	},
++#endif
++	{
++		.name       = "RAWDNAT",
++		.revision   = 0,
++		.family     = NFPROTO_IPV4,
++		.target     = rawdnat_tg4,
++		.targetsize = sizeof(struct xt_rawnat_tginfo),
++		.checkentry = rawnat_tg_check,
++		.me         = THIS_MODULE,
++	},
++#ifdef WITH_IPV6
++	{
++		.name       = "RAWDNAT",
++		.revision   = 0,
++		.family     = NFPROTO_IPV6,
++		.target     = rawdnat_tg6,
++		.targetsize = sizeof(struct xt_rawnat_tginfo),
++		.checkentry = rawnat_tg_check,
++		.me         = THIS_MODULE,
++	},
++#endif
++};
++
++static int __init rawnat_tg_init(void)
++{
++	return xt_register_targets(rawnat_tg_reg, ARRAY_SIZE(rawnat_tg_reg));
++}
++
++static void __exit rawnat_tg_exit(void)
++{
++	xt_unregister_targets(rawnat_tg_reg, ARRAY_SIZE(rawnat_tg_reg));
++}
++
++module_init(rawnat_tg_init);
++module_exit(rawnat_tg_exit);
++MODULE_AUTHOR("Jan Engelhardt <jengelh@medozas.de>");
++MODULE_DESCRIPTION("Xtables: conntrack-less raw NAT");
++MODULE_LICENSE("GPL");
++MODULE_ALIAS("ipt_RAWSNAT");
++MODULE_ALIAS("ipt_RAWDNAT");
++MODULE_ALIAS("ip6t_RAWSNAT");
++MODULE_ALIAS("ip6t_RAWDNAT");
+diff --git a/extensions/xt_RAWNAT.h b/extensions/xt_RAWNAT.h
+new file mode 100644
+index 0000000..bf43f44
+--- /dev/null
++++ b/extensions/xt_RAWNAT.h
+@@ -0,0 +1,10 @@
++#ifndef _LINUX_NETFILTER_XT_TARGET_RAWNAT
++#define _LINUX_NETFILTER_XT_TARGET_RAWNAT 1
++
++struct xt_rawnat_tginfo {
++	union nf_inet_addr addr;
++	__u16 port;
++	__u8 mask;
++};
++
++#endif /* _LINUX_NETFILTER_XT_TARGET_RAWNAT */
+diff --git a/mconfig b/mconfig
+index 0dcbfcb..882dd12 100644
+--- a/mconfig
++++ b/mconfig
+@@ -9,6 +9,7 @@ build_ECHO=m
+ build_IPMARK=m
+ build_LOGMARK=m
+ build_PROTO=m
++build_RAWNAT=m
+ build_SYSRQ=m
+ build_TARPIT=m
+ build_condition=m
+-- 
+2.30.2
+
